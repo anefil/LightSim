@@ -31,7 +31,7 @@ fn main() {
                 width: 900,
                 height: 900
             };
-        window = winit::window::WindowBuilder::new().build(&ev_loop).expect("Trouble building window handler");
+        window = winit::window::WindowBuilder::new().build(&ev_loop).expect("Trouble building window handler"); 
         futures::executor::block_on(rs_wgpu_cube::renderer::run(ev_loop,window,size));
     }
 }

@@ -12,12 +12,11 @@ pub struct InnerState<'window> {
 
 pub struct State<'window> {
     pub inner_state: InnerState<'window>,
-    pub renderer: Box<dyn Fn(&mut InnerState, &mut Box<dyn std::any::Any>) -> Result<(),wgpu::SurfaceError>>,
-    pub data: Box<dyn std::any::Any>
+    pub render_data: Option<Box<dyn Renderer>>,
 }
 
 impl<'window> State<'window> {
-    pub async fn new(size: winit::dpi::PhysicalSize<u32>,window: winit::window::Window, instance_descriptor: wgpu::InstanceDescriptor, adapter_options: wgpu::RequestAdapterOptions<'window,'window>, device_descriptor: wgpu::DeviceDescriptor<'window>, renderer: Box<dyn Fn(&mut InnerState, &mut Box<dyn std::any::Any>) -> Result<(),wgpu::SurfaceError>>, data: Box<dyn std::any::Any>) -> Self {
+    pub async fn new(size: winit::dpi::PhysicalSize<u32>,window: winit::window::Window, instance_descriptor: wgpu::InstanceDescriptor, adapter_options: wgpu::RequestAdapterOptions<'window,'window>, device_descriptor: wgpu::DeviceDescriptor<'window>, render_data: Option<Box<dyn Renderer>>) -> Self {
 
         let instance = wgpu::Instance::new(instance_descriptor);
         
@@ -52,8 +51,7 @@ impl<'window> State<'window> {
                     view_formats: vec![]
                 } 
             },
-            renderer,
-            data
+            render_data,
         }
     }
 
@@ -72,8 +70,12 @@ impl<'window> State<'window> {
     }
 
     pub fn render(&mut self) {
-        unsafe {       
-            (self.renderer)(&mut self.inner_state, &mut self.data);
-        }
+        self.render_data.as_mut().unwrap().render(&mut self.inner_state);
+    }
+}
+
+pub trait Renderer {
+    fn render(&mut self, inner: &mut InnerState) -> Result<(),wgpu::SurfaceError> {
+        Ok(())
     }
 }

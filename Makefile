@@ -14,10 +14,14 @@ SHADER_SRC_FILES := $(wildcard $(SHADER_SRC_DIR)/*)
 
 # default: windows_debug_run wasm_debug_run 
 default: windows_debug_run
+release: windows_release_run
 
 wasm_debug_run: wasm_build_debug
 	CMD /C start CMD /K  simple-http-server .\web --ip 127.0.0.1 -p 301
 	'${BROWSER_LOCATION}' ${ADDRESS}
+
+windows_release_run: windows_build_debug
+	cargo run --target x86_64-pc-windows-msvc --release
 
 windows_debug_run: windows_build_debug
 	CMD /C start  CMD /K  .\target\x86_64-pc-windows-msvc\debug\rs_wgpu_cube.exe

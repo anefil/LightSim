@@ -1,6 +1,8 @@
-use std::io::Read;
+use std::{cell::OnceCell, io::Read, rc::Rc};
 
 use wgpu::util::DeviceExt;
+
+use crate::state_machine::Renderer;
 
 // pub struct OrthographicCamera {
 //     position: [f32;3],
@@ -149,96 +151,9 @@ pub struct Data {
     pub params_render_texture_sampler: Option<wgpu::Sampler>,
 }
 
-pub fn render_function(state: &mut crate::state_machine::InnerState, data: &mut Box<dyn std::any::Any>) -> Result<(), wgpu::SurfaceError> {
-    let data = data.downcast_mut::<Data>().unwrap();
-
-    data._STEP += 1;
-
-    data.compute_data.time += data.compute_data.time_delta;
-    data.compute_data.ping_pong = !data.compute_data.ping_pong;
-    state.queue.write_buffer(data.compute_buffer.as_ref().unwrap(), 0, &data.compute_data.transmute());
-    // if data._STEP % 200 == 0 {
-    //     // let mut result = false;
-    //     {
-    //     data.cumulative_storage_buffer.as_ref().unwrap().slice(..).map_async(wgpu::MapMode::Read, |f| {f.is_ok();});
-    //     state.device.poll(wgpu::Maintain::Wait);
-    //     let a = data.cumulative_storage_buffer.as_ref().unwrap().slice(..).get_mapped_range();
-    //     let value = unsafe {
-    //         std::mem::transmute::<[u8;16], [f32;4]>(a.as_ref().try_into().unwrap())
-    //     };
-    //     println!("{:?}", value);
-    //     }
-    //     data.cumulative_storage_buffer.as_ref().unwrap().unmap();
-    // }
-    if data.compute_data.ping_pong {
-        state.queue.write_buffer(data.cumulative_storage_buffer.as_ref().unwrap(), 8, &[0,0,0,0,0,0,0,0]);
-    } else {
-        state.queue.write_buffer(data.cumulative_storage_buffer.as_ref().unwrap(), 0, &[0,0,0,0,0,0,0,0]);
-    }
-    let mut encoder = state.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("Compute Encoder"),
-    });
-    {
-        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("Compute Pass"), timestamp_writes: None });
-        compute_pass.set_pipeline(data.compute_pipeline.as_ref().unwrap());
-        compute_pass.set_bind_group(0, data.compute_bind_group.as_ref().unwrap(), &[]);
-
-        compute_pass.insert_debug_marker("Compute eee idk");
-        compute_pass.dispatch_workgroups(data.compute_data._SIZE.0, data.compute_data._SIZE.1, 1);
-    }
-    state.queue.submit(Some(encoder.finish()));
-
-    if data._STEP % 5 == 0 {
-    let output = state.surface.get_current_texture()?;
-    let view = output.texture.create_view(&wgpu::TextureViewDescriptor {
-        array_layer_count: None,
-        label: Some("Output texture"),
-        format: Some(state.surface_capabilities.formats[0].clone()),
-        dimension: None,
-        aspect: wgpu::TextureAspect::All,
-        base_mip_level: 0,
-        mip_level_count: None,
-        base_array_layer: 0
-    });
-
-    let mut encoder = state.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("Render Encoder"),
-    });
-
-    {
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Render Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color {
-                    r: 0.0,
-                    g: 0.0,
-                    b: 0.0,
-                    a: 1.0,
-                }), store: wgpu::StoreOp::Store },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-        });
-
-        render_pass.set_pipeline(data.render_pipeline.as_ref().unwrap());
-        render_pass.set_bind_group(0, data.render_bind_group.as_ref().unwrap(),&[]);
-
-        let buffer_slice = data.buffer.as_ref().unwrap();
-        // render_pass.set_bind_group(0, data.bind_group.as_ref().unwrap(), &[]);
-        render_pass.set_vertex_buffer(0, buffer_slice.slice(..));
-
-
-        render_pass.draw(0..4, 0..1);
-        
-    }
-    state.queue.submit(Some(encoder.finish()));
-    output.present();
-    }
-    Ok(())
-}
+// pub fn render_function(state: &mut crate::state_machine::InnerState, data: &mut Box<dyn std::any::Any>) -> Result<(), wgpu::SurfaceError> {
+    
+// }
 
 pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::window::Window, size: winit::dpi::PhysicalSize<u32>) {
 
@@ -290,41 +205,42 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
         compute_shader = &compute_shader_vec[..];
     }
 
+    let mut data = Box::new(Data {
+        _STEP: 0,
+        vertex: crate::renderer::VertexHandler::default(),
+        compute_data: ComputeShaderLightData::default(),
+        // camera: crate::renderer::OrthographicCamera::default(),,
+        render_pipeline: None,
+        compute_pipeline: None,
+        compute_bind_group: None,
+        render_bind_group: None,
+        buffer: None,
+        compute_buffer: None,
+        cumulative_storage_buffer: None,
+         first_re_render_texture: None,
+         first_re_render_texture_sampler: None,
+         first_re_render_texture_view: None,
+        second_re_render_texture: None,
+        second_re_render_texture_sampler: None,
+        second_re_render_texture_view: None,
+         first_im_render_texture: None,
+         first_im_render_texture_sampler: None,
+         first_im_render_texture_view: None,
+        second_im_render_texture: None,
+        second_im_render_texture_sampler: None,
+        second_im_render_texture_view: None,
+        params_render_texture: None,
+        params_render_texture_sampler: None,
+        params_render_texture_view: None
+    });
+
     let mut state_machine = crate::state_machine::State::new(
         size,
         window,
         instance_descriptor,
         adapter_options,
         device_descriptor,
-        Box::new(crate::renderer::render_function),
-        Box::new(crate::renderer::Data {
-            _STEP: 0,
-            vertex: crate::renderer::VertexHandler::default(),
-            compute_data: ComputeShaderLightData::default(),
-            // camera: crate::renderer::OrthographicCamera::default(),,
-            render_pipeline: None,
-            compute_pipeline: None,
-            compute_bind_group: None,
-            render_bind_group: None,
-            buffer: None,
-            compute_buffer: None,
-            cumulative_storage_buffer: None,
-             first_re_render_texture: None,
-             first_re_render_texture_sampler: None,
-             first_re_render_texture_view: None,
-            second_re_render_texture: None,
-            second_re_render_texture_sampler: None,
-            second_re_render_texture_view: None,
-             first_im_render_texture: None,
-             first_im_render_texture_sampler: None,
-             first_im_render_texture_view: None,
-            second_im_render_texture: None,
-            second_im_render_texture_sampler: None,
-            second_im_render_texture_view: None,
-            params_render_texture: None,
-            params_render_texture_sampler: None,
-            params_render_texture_view: None
-        })
+        None
     ).await;
     
     let size = state_machine.inner_state.size.clone();
@@ -342,8 +258,6 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
     };
 
     state_machine.config(surface_config);
-
-    let data = state_machine.data.downcast_mut::<Data>().unwrap();
 
     let vertex_shader_module = state_machine.inner_state.device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Vertex Shader Module Descriptor"),
@@ -365,6 +279,8 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
         usage: wgpu::BufferUsages::VERTEX,
         contents: vertex_data.as_slice()
     });
+
+    
 
     data.compute_data._SIZE = (size.width,size.height);
 
@@ -844,6 +760,8 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
     data.buffer = Some(buffer);
     data.compute_buffer = Some(compute_buffer);
     data.cumulative_storage_buffer = Some(cumulative_storage_buffer);
+
+    state_machine.render_data = Some(data);
     // state_machine.data.downcast_mut::<Data>().unwrap().bind_group = Some(bind_group);
 
     // wgpu::ShaderStages
@@ -861,16 +779,14 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
                     },
                     winit::event::WindowEvent::Resized(v) => {
                         #[cfg(target_arch="wasm32")] {
-                            unsafe {
-                                web_sys::console::log(&wasm_bindgen::JsValue::from(format!("{}, {}", v.width, v.height)).into());
-                            }
+                            web_sys::console::log(&wasm_bindgen::JsValue::from(format!("{}, {}", v.width, v.height)).into());
                         }
                         #[cfg(not(target_arch="wasm32"))] {
                             state_machine.resize(v);
                         }
                     },
                     winit::event::WindowEvent::RedrawRequested => {
-                        state_machine.render();
+                        state_machine.render();  // TODO: move onto handling the function by this one? idk
                     }
 
                     _ => {}
@@ -883,4 +799,95 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
             _ => {}
         }
     });
+}
+
+impl Renderer for Data {
+    fn render(&mut self, state: &mut crate::state_machine::InnerState) -> Result<(),wgpu::SurfaceError> {
+        self._STEP += 1;
+
+        self.compute_data.time += self.compute_data.time_delta;
+        self.compute_data.ping_pong = !self.compute_data.ping_pong;
+        state.queue.write_buffer(self.compute_buffer.as_ref().unwrap(), 0, &self.compute_data.transmute());
+        // if data._STEP % 200 == 0 {
+        //     // let mut result = false;
+        //     {
+        //     data.cumulative_storage_buffer.as_ref().unwrap().slice(..).map_async(wgpu::MapMode::Read, |f| {f.is_ok();});
+        //     state.device.poll(wgpu::Maintain::Wait);
+        //     let a = data.cumulative_storage_buffer.as_ref().unwrap().slice(..).get_mapped_range();
+        //     let value = unsafe {
+        //         std::mem::transmute::<[u8;16], [f32;4]>(a.as_ref().try_into().unwrap())
+        //     };
+        //     println!("{:?}", value);
+        //     }
+        //     data.cumulative_storage_buffer.as_ref().unwrap().unmap();
+        // }
+        if self.compute_data.ping_pong {
+            state.queue.write_buffer(self.cumulative_storage_buffer.as_ref().unwrap(), 8, &[0,0,0,0,0,0,0,0]);
+        } else {
+            state.queue.write_buffer(self.cumulative_storage_buffer.as_ref().unwrap(), 0, &[0,0,0,0,0,0,0,0]);
+        }
+        let mut encoder = state.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Compute Encoder"),
+        });
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("Compute Pass"), timestamp_writes: None });
+            compute_pass.set_pipeline(self.compute_pipeline.as_ref().unwrap());
+            compute_pass.set_bind_group(0, self.compute_bind_group.as_ref().unwrap(), &[]);
+
+            compute_pass.insert_debug_marker("Compute eee idk");
+            compute_pass.dispatch_workgroups(self.compute_data._SIZE.0, self.compute_data._SIZE.1, 1);
+        }
+        state.queue.submit(Some(encoder.finish()));
+
+        if self._STEP % 5 == 0 {
+        let output = state.surface.get_current_texture()?;
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor {
+            array_layer_count: None,
+            label: Some("Output texture"),
+            format: Some(state.surface_capabilities.formats[0].clone()),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+            base_mip_level: 0,
+            mip_level_count: None,
+            base_array_layer: 0
+        });
+
+        let mut encoder = state.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Render Encoder"),
+        });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 1.0,
+                    }), store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(self.render_pipeline.as_ref().unwrap());
+            render_pass.set_bind_group(0, self.render_bind_group.as_ref().unwrap(),&[]);
+
+            let buffer_slice = self.buffer.as_ref().unwrap();
+            // render_pass.set_bind_group(0, data.bind_group.as_ref().unwrap(), &[]);
+            render_pass.set_vertex_buffer(0, buffer_slice.slice(..));
+
+
+            render_pass.draw(0..4, 0..1);
+            
+        }
+        state.queue.submit(Some(encoder.finish()));
+        output.present();
+        }
+        Ok(())
+    }
 }
