@@ -16,12 +16,27 @@ SHADER_SRC_FILES := $(wildcard $(SHADER_SRC_DIR)/*)
 default: windows_debug_run
 release: windows_release_run
 
+# compare: compare_windows
+# compare_windows: preq
+# 	cargo build --target x86_64-pc-windows-msvc --release
+# 	mv .\target\x86_64-pc-windows-msvc\release\rs_wgpu_cube.exe .\target\compare
+# 	CMD /C start ren ".\target\compare\rs_wgpu_cube.exe" old.exe
+# 	cargo build --target x86_64-pc-windows-msvc --features new --release
+# 	mv .\target\x86_64-pc-windows-msvc\release\rs_wgpu_cube.exe .\target\compare
+# 	CMD /C start ren .\target\compare\rs_wgpu_cube.exe new.exe
+# 	CMD /C start CMD /K  .\target\compare\old.exe
+# 	CMD /C start CMD /K  .\target\compare\new.exe
+
+# preq:
+# 	mkdir -p .\target\compare
+
+
 wasm_debug_run: wasm_build_debug
 	CMD /C start CMD /K  simple-http-server .\web --ip 127.0.0.1 -p 301
 	'${BROWSER_LOCATION}' ${ADDRESS}
 
 windows_release_run: windows_build_debug
-	cargo run --target x86_64-pc-windows-msvc --release
+	cargo run --target x86_64-pc-windows-msvc --release ${FEATURES}
 
 windows_debug_run: windows_build_debug
 	CMD /C start  CMD /K  .\target\x86_64-pc-windows-msvc\debug\rs_wgpu_cube.exe

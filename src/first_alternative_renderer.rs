@@ -89,7 +89,7 @@ pub struct ComputeShaderLightData {
     wavelength: f32,
     size_w: f32,
     size_h: f32,
-    ping_pong: bool,
+    ping_pong: u32,
     key_flags: u32
 }
 
@@ -117,7 +117,7 @@ impl Default for ComputeShaderLightData {
             wavelength: 500. * 1E-9,
             size_w: 50. * 1E-9,
             size_h: 50. * 1E-9,
-            ping_pong: true, // flipped
+            ping_pong: 0, // flipped
             key_flags: 0
         }
     }
@@ -134,21 +134,19 @@ pub struct Data {
     pub buffer: Option<wgpu::Buffer>,
     pub cumulative_storage_buffer: Option<wgpu::Buffer>,
     pub compute_buffer: Option<wgpu::Buffer>,
-    pub first_re_render_texture: Option<wgpu::Texture>,
-    pub first_re_render_texture_view: Option<wgpu::TextureView>,
-    pub first_re_render_texture_sampler: Option<wgpu::Sampler>,
-    pub second_re_render_texture: Option<wgpu::Texture>,
-    pub second_re_render_texture_view: Option<wgpu::TextureView>,
-    pub second_re_render_texture_sampler: Option<wgpu::Sampler>,
-    pub first_im_render_texture: Option<wgpu::Texture>,
-    pub first_im_render_texture_view: Option<wgpu::TextureView>,
-    pub first_im_render_texture_sampler: Option<wgpu::Sampler>,
-    pub second_im_render_texture: Option<wgpu::Texture>,
-    pub second_im_render_texture_view: Option<wgpu::TextureView>,
-    pub second_im_render_texture_sampler: Option<wgpu::Sampler>,
+    pub first_render_texture: Option<wgpu::Texture>,
+    pub first_render_texture_view: Option<wgpu::TextureView>,
+    pub first_render_texture_sampler: Option<wgpu::Sampler>,
+    pub second_render_texture: Option<wgpu::Texture>,
+    pub second_render_texture_view: Option<wgpu::TextureView>,
+    pub second_render_texture_sampler: Option<wgpu::Sampler>,
+    pub third_render_texture: Option<wgpu::Texture>,
+    pub third_render_texture_view: Option<wgpu::TextureView>,
+    pub third_render_texture_sampler: Option<wgpu::Sampler>,
     pub params_render_texture: Option<wgpu::Texture>,
     pub params_render_texture_view: Option<wgpu::TextureView>,
     pub params_render_texture_sampler: Option<wgpu::Sampler>,
+    pub profiling_time: std::time::Instant
 }
 
 // pub fn render_function(state: &mut crate::state_machine::InnerState, data: &mut Box<dyn std::any::Any>) -> Result<(), wgpu::SurfaceError> {
@@ -156,10 +154,11 @@ pub struct Data {
 // }
 
 pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::window::Window, size: winit::dpi::PhysicalSize<u32>) {
-
+    let time = std::time::Instant::now();
     let instance_descriptor = wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN,
-        flags: wgpu::InstanceFlags::VALIDATION | wgpu::InstanceFlags::DEBUG,
+        // flags: wgpu::InstanceFlags::VALIDATION | wgpu::InstanceFlags::DEBUG,
+        flags: wgpu::InstanceFlags::empty(),
         dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
         gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
     };
@@ -186,8 +185,8 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
 
     #[cfg(not(target_arch="wasm32"))] {
         vertex_shader_vec = std::fs::read("shaders/vertex.wgsl").expect("No shader at the location");
-        fragment_shader_vec = std::fs::read("shaders/fragment.wgsl").expect("No shader at the location");
-        compute_shader_vec = std::fs::read("shaders/compute.wgsl").expect("No shader at the location");
+        fragment_shader_vec = std::fs::read("shaders/first_try/fragment.wgsl").expect("No shader at the location");
+        compute_shader_vec = std::fs::read("shaders/first_try/compute.wgsl").expect("No shader at the location");
         vertex_shader = std::str::from_utf8(&vertex_shader_vec).unwrap();
         fragment_shader = std::str::from_utf8(&fragment_shader_vec).unwrap();
         compute_shader = std::str::from_utf8(&compute_shader_vec).unwrap();
@@ -207,7 +206,7 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
 
     let mut data = Box::new(Data {
         _STEP: 0,
-        vertex: crate::renderer::VertexHandler::default(),
+        vertex: VertexHandler::default(),
         compute_data: ComputeShaderLightData::default(),
         // camera: crate::renderer::OrthographicCamera::default(),,
         render_pipeline: None,
@@ -217,21 +216,19 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
         buffer: None,
         compute_buffer: None,
         cumulative_storage_buffer: None,
-         first_re_render_texture: None,
-         first_re_render_texture_sampler: None,
-         first_re_render_texture_view: None,
-        second_re_render_texture: None,
-        second_re_render_texture_sampler: None,
-        second_re_render_texture_view: None,
-         first_im_render_texture: None,
-         first_im_render_texture_sampler: None,
-         first_im_render_texture_view: None,
-        second_im_render_texture: None,
-        second_im_render_texture_sampler: None,
-        second_im_render_texture_view: None,
+        first_render_texture: None,
+        first_render_texture_sampler: None,
+        first_render_texture_view: None,
+        second_render_texture: None,
+        second_render_texture_sampler: None,
+        second_render_texture_view: None,
+        third_render_texture: None,
+        third_render_texture_sampler: None,
+        third_render_texture_view: None,
         params_render_texture: None,
         params_render_texture_sampler: None,
-        params_render_texture_view: None
+        params_render_texture_view: None,
+        profiling_time: time
     });
 
     let mut state_machine = crate::state_machine::State::new(
@@ -284,7 +281,7 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
 
     data.compute_data._SIZE = (size.width,size.height);
 
-    data.first_re_render_texture = Some(state_machine.inner_state.device.create_texture(
+    data.first_render_texture = Some(state_machine.inner_state.device.create_texture(
         &wgpu::TextureDescriptor {
             size: wgpu::Extent3d { 
                 width: size.width, height: size.height, depth_or_array_layers: 1
@@ -299,15 +296,15 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
         }
     ));
 
-    data.first_re_render_texture_view = Some(data.first_re_render_texture.as_ref().unwrap().create_view(&wgpu::TextureViewDescriptor {
+    data.first_render_texture_view = Some(data.first_render_texture.as_ref().unwrap().create_view(&wgpu::TextureViewDescriptor {
         ..Default::default()
     }));
 
-    data.first_re_render_texture_sampler = Some(state_machine.inner_state.device.create_sampler(&wgpu::SamplerDescriptor {
+    data.first_render_texture_sampler = Some(state_machine.inner_state.device.create_sampler(&wgpu::SamplerDescriptor {
         ..Default::default()
     }));
 
-    data.second_re_render_texture = Some(state_machine.inner_state.device.create_texture(
+    data.second_render_texture = Some(state_machine.inner_state.device.create_texture(
         &wgpu::TextureDescriptor {
             size: wgpu::Extent3d { 
                 width: size.width, height: size.height, depth_or_array_layers: 1
@@ -322,15 +319,15 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
         }
     ));
 
-    data.second_re_render_texture_view = Some(data.second_re_render_texture.as_ref().unwrap().create_view(&wgpu::TextureViewDescriptor {
+    data.second_render_texture_view = Some(data.second_render_texture.as_ref().unwrap().create_view(&wgpu::TextureViewDescriptor {
         ..Default::default()
     }));
 
-    data.second_re_render_texture_sampler = Some(state_machine.inner_state.device.create_sampler(&wgpu::SamplerDescriptor {
+    data.second_render_texture_sampler = Some(state_machine.inner_state.device.create_sampler(&wgpu::SamplerDescriptor {
         ..Default::default()
     }));
 
-    data.first_im_render_texture = Some(state_machine.inner_state.device.create_texture(
+    data.third_render_texture = Some(state_machine.inner_state.device.create_texture(
         &wgpu::TextureDescriptor {
             size: wgpu::Extent3d { 
                 width: size.width, height: size.height, depth_or_array_layers: 1
@@ -345,36 +342,14 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
         }
     ));
 
-    data.first_im_render_texture_view = Some(data.first_im_render_texture.as_ref().unwrap().create_view(&wgpu::TextureViewDescriptor {
+    data.third_render_texture_view = Some(data.third_render_texture.as_ref().unwrap().create_view(&wgpu::TextureViewDescriptor {
         ..Default::default()
     }));
 
-    data.first_im_render_texture_sampler = Some(state_machine.inner_state.device.create_sampler(&wgpu::SamplerDescriptor {
+    data.third_render_texture_sampler = Some(state_machine.inner_state.device.create_sampler(&wgpu::SamplerDescriptor {
         ..Default::default()
     }));
 
-    data.second_im_render_texture = Some(state_machine.inner_state.device.create_texture(
-        &wgpu::TextureDescriptor {
-            size: wgpu::Extent3d { 
-                width: size.width, height: size.height, depth_or_array_layers: 1
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba32Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            label: Some("second compute texture"),
-            view_formats: &[]
-        }
-    ));
-
-    data.second_im_render_texture_view = Some(data.second_im_render_texture.as_ref().unwrap().create_view(&wgpu::TextureViewDescriptor {
-        ..Default::default()
-    }));
-
-    data.second_im_render_texture_sampler = Some(state_machine.inner_state.device.create_sampler(&wgpu::SamplerDescriptor {
-        ..Default::default()
-    }));
 
 
     data.params_render_texture = Some(state_machine.inner_state.device.create_texture(
@@ -408,7 +383,7 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
 
     let cumulative_storage_buffer = state_machine.inner_state.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Cumulative compute buffer"),
-        contents: unsafe { &std::mem::transmute::<[f32;4],[u8;16]>([0.,0.,1.,1.]) },
+        contents: unsafe { &std::mem::transmute::<[f32;6],[u8;24]>([0.,0.,0.,0.,0.,0.]) },
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ
     });
 
@@ -438,16 +413,6 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 2,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::StorageTexture { 
-                    access: wgpu::StorageTextureAccess::ReadWrite, 
-                    format: wgpu::TextureFormat::Rgba32Float,
-                    view_dimension: wgpu::TextureViewDimension::D2
-                },
-                count: None
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 3,
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::StorageTexture { 
                     access: wgpu::StorageTextureAccess::ReadWrite, 
@@ -495,19 +460,15 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(data.first_re_render_texture_view.as_ref().unwrap())
+                resource: wgpu::BindingResource::TextureView(data.first_render_texture_view.as_ref().unwrap())
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::TextureView(data.second_re_render_texture_view.as_ref().unwrap())
+                resource: wgpu::BindingResource::TextureView(data.second_render_texture_view.as_ref().unwrap())
             },
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: wgpu::BindingResource::TextureView(data.first_im_render_texture_view.as_ref().unwrap())
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::TextureView(data.second_im_render_texture_view.as_ref().unwrap())
+                resource: wgpu::BindingResource::TextureView(data.third_render_texture_view.as_ref().unwrap())
             },
             wgpu::BindGroupEntry {
                 binding: 4,
@@ -585,22 +546,6 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
                 count: None
             },
             wgpu::BindGroupLayoutEntry {
-                binding: 6,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture { 
-                    sample_type: wgpu::TextureSampleType::Float { filterable: false }, 
-                    view_dimension: wgpu::TextureViewDimension::D2, 
-                    multisampled: false 
-                },
-                count: None
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 7,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
-                count: None
-            },
-            wgpu::BindGroupLayoutEntry {
                 binding: 8,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Texture { 
@@ -635,35 +580,27 @@ pub async fn run(ev_loop: winit::event_loop::EventLoop<()>, window: winit::windo
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(data.first_re_render_texture_view.as_ref().unwrap())
+                resource: wgpu::BindingResource::TextureView(data.first_render_texture_view.as_ref().unwrap())
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::Sampler(data.first_re_render_texture_sampler.as_ref().unwrap())
+                resource: wgpu::BindingResource::Sampler(data.first_render_texture_sampler.as_ref().unwrap())
             },
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: wgpu::BindingResource::TextureView(data.second_re_render_texture_view.as_ref().unwrap())
+                resource: wgpu::BindingResource::TextureView(data.second_render_texture_view.as_ref().unwrap())
             },
             wgpu::BindGroupEntry {
                 binding: 3,
-                resource: wgpu::BindingResource::Sampler(data.second_re_render_texture_sampler.as_ref().unwrap())
+                resource: wgpu::BindingResource::Sampler(data.second_render_texture_sampler.as_ref().unwrap())
             },
             wgpu::BindGroupEntry {
                 binding: 4,
-                resource: wgpu::BindingResource::TextureView(data.first_im_render_texture_view.as_ref().unwrap())
+                resource: wgpu::BindingResource::TextureView(data.third_render_texture_view.as_ref().unwrap())
             },
             wgpu::BindGroupEntry {
                 binding: 5,
-                resource: wgpu::BindingResource::Sampler(data.first_im_render_texture_sampler.as_ref().unwrap())
-            },
-            wgpu::BindGroupEntry {
-                binding: 6,
-                resource: wgpu::BindingResource::TextureView(data.second_im_render_texture_view.as_ref().unwrap())
-            },
-            wgpu::BindGroupEntry {
-                binding: 7,
-                resource: wgpu::BindingResource::Sampler(data.second_im_render_texture_sampler.as_ref().unwrap())
+                resource: wgpu::BindingResource::Sampler(data.third_render_texture_sampler.as_ref().unwrap())
             },
             wgpu::BindGroupEntry {
                 binding: 8,
@@ -806,26 +743,34 @@ impl Renderer for Data {
         self._STEP += 1;
 
         self.compute_data.time += self.compute_data.time_delta;
-        self.compute_data.ping_pong = !self.compute_data.ping_pong;
+        self.compute_data.ping_pong += 1;
+        self.compute_data.ping_pong %= 3;
         state.queue.write_buffer(self.compute_buffer.as_ref().unwrap(), 0, &self.compute_data.transmute());
-        // if data._STEP % 200 == 0 {
+        // if self._STEP % 200 == 0 {
         //     // let mut result = false;
         //     {
-        //     data.cumulative_storage_buffer.as_ref().unwrap().slice(..).map_async(wgpu::MapMode::Read, |f| {f.is_ok();});
-        //     state.device.poll(wgpu::Maintain::Wait);
-        //     let a = data.cumulative_storage_buffer.as_ref().unwrap().slice(..).get_mapped_range();
-        //     let value = unsafe {
-        //         std::mem::transmute::<[u8;16], [f32;4]>(a.as_ref().try_into().unwrap())
-        //     };
-        //     println!("{:?}", value);
+        //         self.cumulative_storage_buffer.as_ref().unwrap().slice(..).map_async(wgpu::MapMode::Read, |f| {f.is_ok();});
+        //         state.device.poll(wgpu::Maintain::Wait);
+        //         let a = self.cumulative_storage_buffer.as_ref().unwrap().slice(..).get_mapped_range();
+        //         let value = unsafe {
+        //             std::mem::transmute::<[u8;24], [f32;6]>(a.as_ref().try_into().unwrap())
+        //         };
+        //         println!("{:?}", value);
         //     }
-        //     data.cumulative_storage_buffer.as_ref().unwrap().unmap();
+        //     self.cumulative_storage_buffer.as_ref().unwrap().unmap();
         // }
-        if self.compute_data.ping_pong {
-            state.queue.write_buffer(self.cumulative_storage_buffer.as_ref().unwrap(), 8, &[0,0,0,0,0,0,0,0]);
-        } else {
-            state.queue.write_buffer(self.cumulative_storage_buffer.as_ref().unwrap(), 0, &[0,0,0,0,0,0,0,0]);
+
+        if self._STEP == 1000 {
+            println!("{:.2?}", self.profiling_time.elapsed());
         }
+        
+        
+        state.queue.write_buffer(
+            self.cumulative_storage_buffer.as_ref().unwrap(), 
+            (self.compute_data.ping_pong as u64%3)*8, 
+            &[0,0,0,0,0,0,0,0]
+        );
+
         let mut encoder = state.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Compute Encoder"),
         });

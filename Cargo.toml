@@ -17,3 +17,6 @@ serde = "1.0.195"
 wgpu = "0.19.1"
 winit = { version= "0.29.10"}
 
+[features]
+# Defines a feature named `webp` that does not enable any other features.
+old = []

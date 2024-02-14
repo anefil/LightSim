@@ -21,7 +21,7 @@ fn main() {
         };
         window = winit::window::WindowBuilder::new().with_canvas(Some(canvas))
         .build(&ev_loop).expect("Trouble building window handler");
-        wasm_bindgen_futures::spawn_local(rs_wgpu_cube::renderer::run(ev_loop,window, size));
+        wasm_bindgen_futures::spawn_local(rs_wgpu_cube::first_alternative_renderer::run(ev_loop,window, size));
     }
 
     #[cfg(not(target_arch="wasm32"))]
@@ -32,6 +32,9 @@ fn main() {
                 height: 900
             };
         window = winit::window::WindowBuilder::new().build(&ev_loop).expect("Trouble building window handler"); 
-        futures::executor::block_on(rs_wgpu_cube::renderer::run(ev_loop,window,size));
+        #[cfg(not(feature ="old"))]
+        futures::executor::block_on(rs_wgpu_cube::first_alternative_renderer::run(ev_loop,window,size));
+        #[cfg(feature ="old")]
+        futures::executor::block_on(rs_wgpu_cube::second_alternative_renderer::run(ev_loop,window,size));
     }
 }
